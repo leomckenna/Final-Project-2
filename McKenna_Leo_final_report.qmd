@@ -1,0 +1,333 @@
+---
+title: "Predicing Income Based On 2017 US Cenus Data"
+subtitle: "Data Science 2 with R (STAT 301-2)"
+author: "Leo McKenna"
+date: today
+
+format:
+  html:
+    toc: true
+    embed-resources: true
+    code-fold: show
+    link-external-newwindow: true
+
+execute:
+  warning: false
+  
+from: markdown+emoji 
+---
+
+::: {.callout-tip icon=false}
+
+## Github Repo Link
+
+[https://github.com/stat301-1-2023-fall/final-project-1-leomckenna.git](https://github.com/stat301-1-2023-fall/final-project-1-leomckenna.git)
+
+:::
+
+## **Introduction**
+The data used for this final project is called US Census Demographic Data. It can be found on Kaggle, and it was uploaded by MUONNEUTRINO.^[https://www.kaggle.com/datasets/muonneutrino/us-census-demographic-data [](https://quarto.org/docs/blog/posts/2022-02-17-advanced-layout/)] This data was collected by the US Census Bureau in 2015 and 2017, and contains 4 data sets: 
+
+- `acs2015_census_tract_data.csv`
+- `acs2015_county_data.csv`
+- `acs2017_census_tract_data.csv`
+- `acs2017_county_data.csv`
+
+I decided to use the 2017 data in order to build a predictive model because I believe that this data could be used to give us important insights into what goes into increasing the well-being of people within a certain county. Using the most recent data will give us the best idea of what the current situation is like in these areas.
+
+The data set itself contains 3220 observations - meaning that there is data from 3,220 different US counties. This should certainly be enough information to mold a predictive model. There are 37 different variables, one of which is the outcome variable income, which should give us plenty of features for this model. Of these 37 columns, only 2 of them are categorical - namely the name of the county, and which state each county is in. Unfortunately, in order to run the models smoothly, I had to remove the county variable for all recipes, and the state variable in the tree and baseline recipes. The number of unique factors in each of these variables was causing many issues with fitting the models, and I believe that they would not add much predictive power when successful so I decided to remove the issue altogether.
+
+Being able to understand how to predict a certain county's income or the variables that matter most to this kind of prediction could potentially help solve many different issues. Understanding the problem is the primary step in knowing how to solve it. If I could build a model that predicts very accurately what the income would be in a specific county, I could learn what variables we should focus on increasing and decreasing in order to raise incomes, and in turn make those people's lives better. My main goal with this project is to learn how to make the prediction as accurate as possible in order to solve important problems like this, and what factors go into making the best model possible. 
+
+
+## **Data Overview**
+On first inspection when doing my research for data sets, this data seemed to be quite clean and lacking in missing data, but some exploratory data analysis is needed in order to back up that claim.
+
+```{r}
+#| echo: false
+# load packages ----
+library(tidyverse)
+library(tidymodels)
+library(here)
+library(gt)
+library(knitr)
+
+# handle common conflicts
+tidymodels_prefer()
+
+# read in and clean data 
+census_data <- read_csv(here("data/acs2017_county_data.csv")) |> 
+  janitor::clean_names()
+
+knitr::opts_knit$set(root.dir = "/Users/leomckenna/Desktop/stat-301-2/final-project-2-leomckenna")
+
+getwd()
+```
+
+```{r}
+#| echo: false
+# Checking missingness
+census_data |> 
+  naniar::miss_var_summary() |> 
+  filter(n_miss > 0) |> 
+  gt() |> 
+  tab_header(
+    title = "Summary of Missing Values",
+    subtitle = "Variables with Missing Values"
+  )
+
+#There is one missing observation in the entire data set, so missingness will not be a problem for prediction
+```
+As we can see, in a data set of 37 variables and over 3,000 observations, there is only one singular instance of missingness which means that it will not be a significant or meaningful issue for prediction at all. Doing a skim of the target variable income, we can also see:
+
+```{r}
+#| echo: false
+## inspect data set
+census_data |> 
+  skimr::skim_without_charts(income) |> 
+  kable()
+  
+```
+there are no noticeable irregular patterns, and in fact, it seems to follow the trend we would expect of median family income in the US - with an average of around 50,000 dollars and the highest income value being around 130,000.
+
+## **Methods**
+**Model Types**
+
+Because income is a numerical variable, it will be the target variable in a regression problem. Six distinct model that can be used for regression problem will be considered for analysis:
+
+**Baseline Model (Standard Linear Model)**: A simple linear regression model that assumes a linear relationship between the predictor variables and the target variable.
+
+**Linear Model**: Another linear regression model that uses more complex recipes and added preprocessing steps in order to achieve greater prediction.
+
+**Boosted Tree Model**: A machine learning ensemble technique that builds a strong model by combining multiple weak models, typically decision trees, sequentially. 
+
+**Elastic Net Model**: A hybrid regression model that combines penalties from both Lasso (L1 regularization) and Ridge (L2 regularization) regression.
+
+**K-Nearest Neighbor Model**: A model that predicts the class or value of a data point by averaging the labels of its k nearest neighbors in the feature space.
+
+**Random Forest Model**: A learning method consisting of multiple decision trees, where each tree is trained on a random subset of the data and features.
+
+To ensure robust model evaluation, I'll be using the conventional 80/20 split, where 80% of the data will be allocated for model training and the remaining 20% for testing. There are around 3000 observations, and the splits will look like this:
+
+```{r}
+#| echo: false
+#| eval: false
+census_split
+```
+2576 observations for training, and thus 644 observations with which to test the trained model. This should be an appropriate amount of observations for testing and also to use stratification and resampling in order to achieve better predictive results.
+ 
+**Resampling**
+
+I will be using resampling in order to mitigate the risk of over-fitting and to obtain reliable estimates of model performance. Specifically, I'll be using V-fold cross-validation. In order to better understand the importance of resampling and how many folds should be used, for each model I did predictions using both 5-fold cross-validation as well as 10-fold cross-validation. I will compare across the two versions of each model with everything else held constant to see how important the number of folds is for more accurate predictive power.
+
+**Hyperparameter Tuning**
+
+Of the 6 models being used, there are 4 with hyperparameters that will be tuned:
+
+**Boosted Tree Model**: The boosted tree model has the hyperparameters `learn_rate()`, `min_n()`, and `mtry()`. The parameter values for `learn_rate()`, and `mtry()` have been updated to range between (-5, -0.2), and (1, 10) respectively, while the `min_n()` parameter ranges between the standard values: (2, 40).
+
+**Elastic Net Model**: The elastic net model has hyperparameters `penalty()`, and `mixture()`. The grid being used for tuning will contain values for the mixture parameters on the interval (0,1), and the penalty parameter on the interval (1,10) in order to test if a Lasso/Ridge model would perform the best, or whether other values would perform better. 
+
+**K-Nearest Neighbor Model**: The KNN model only has one hyperparameter to tune, being `neighbors()`, and I will be using the standard values for the tuning grid which range from 1 to 15.
+
+**Random Forest Model**: The boosted tree model has the hyperparameters `trees()`, `min_n()`, and `mtry()`. The parameter values for `mtry()` has been updated to range from (1, 20), while the `min_n()`, like the boosted tree model, is taking on values (2, 40), and `trees()` will also use its normal range of (1,2000).
+
+
+**Recipes**
+
+4 recipes are being employed for fitting and tuning the models. Firstly, I will be using a baseline model for the standard linear model, as well as the three non-linear models, K-Nearest Neighbors, Random Forest, and Boosted Tree. This recipe will be used for all fitting of the base model, but for the non-linear models, it will be used as a comparison to see how well the more complex, more specific tree-based recipe will perform. This recipe will give us a good idea of how important preprocessing steps are for these kinds of models.
+
+For the linear models, i.e. the normal linear model, and elastic net, I will be using a "kitchen sink" recipe as well as a simpler, specific linear recipe. These two recipes will be compared against the baseline linear model in order to see which performs the best. The kitchen sink is the most complex of three - including step_interact() terms which, when done correctly, can help maximize predictive power. In these interaction steps, I created an interaction between `poverty`, `child_poverty` and `unemployment` both because of my belief that these variables would most likely have a strong positive correlation, but also because the correlation plot I made confirmed this. The same can be said for the interactions between `total_pop`, `women`, `men`, and `voting_age_citizen`, as well as the interaction between `self_employed` and `work_at_home`.
+
+
+## **Model Building & Selection**
+**Should reiterate the metric that will be used to compare models and determine which will be the final/winning model. Include a table of the best performing model results. Review and analysis of tuning parameters should happen here. Should further tuning be explored? Or how should tuning be adjusted when fitting data like this in the future. This would be a good section to describe what the best parameters were for each model type. Could include a discussion comparing any systematic differences in performance between model types or recipes. If variations in recipes were used to explore predictive importance of certain variables, then it should be discussed here. The section will likely end with the selection of the final/winning model (provide your reasoning). Was it surprising or not surprising that this particular model won? Explain.**
+
+The metric used for all of the model comparison will be RMSE, or Real Mean Squared Error. This is a metric which is calculated based on the mean difference between the actual and predicted values. If the RMSE has a higher value for a certain model, it means that on average, for all folds and resamples, the difference between predicted and actual values is greater.
+
+**Analysis of 5 vs 10 folds**
+
+The first question I aimed to answer through my analysis, was what the difference between using 5 and 10 folds would look like in regards to the corresponding calculated metrics. In order to do so, I fit/tuned all 6 models using a version of the training set with 5 and 10 folds. The corresponding RMSE's can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/results_table_1.rda"))
+load(here("figures/results_table_2.rda"))
+
+results_table_1
+
+results_table_2
+```
+There are a lot of numbers in this table, but on first inspection, the models for which everything was held constant except for the number of folds seem to have very similar values. The only two noticeable differences are the Random Forest models with the tree-based recipe, and the linear model with the "sink" recipe which differ by about 50, but in both instances, this is within one standard error meaning the difference is negligible. Based on these results, I can conclude that changing the value of V from 5 to 10 had no real differences on the mean RMSEs calculated, and therefore it is not worth the extra computing time to do extra folds if not absolutely necessary.
+
+We can also confirm this by looking at plots of the mean RMSEs for each model:
+
+![5 v 10 fold models](figures/folds_plot.png)
+
+**Success of the Recipes**
+
+I also wanted to know which of the four recipes would perform the best, or really, how important preprocessing steps are to creating a better model. In order to test the importance of preprocessing, I created more simple baseline and linear recipes, and then more complicated tree-based and "kitchen sink" recipes. I tested the linear models using the simpler linear and more complicated "kitchen sink" recipe, and the non-linear models with the baseline, and more complex tree-based recipes. 
+
+For the tree-based models, the results can be seen in this table and graph of the RMSE values:
+
+```{r}
+#| echo: false
+load(here("figures/all_tree_results.rda"))
+
+all_tree_results
+```
+
+
+![Tree models](figures/rf_plot.png)
+The table and graph clearly show that there are two Random Forest models which are better than the others, those being the models which employed the tree-based recipe. This is to be expected. The tree-based recipe includes more preprocessing steps, including normalization and scaling, which caused more accurate prediction by eliminating more noise from the data.
+
+
+For the linear models, the results can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/all_linear_results.rda"))
+
+all_linear_results
+```
+
+![Linear models](figures/lm_plot.png)
+Again, there are clearly models that performed better than the others by a good margin, in this case, there are 4 that performed the best, 2 from the elastic net model, and 2 standard linear models, and they are interestingly, those that used the more simple, linear recipe rather than the "kitchen sink" recipe.
+
+
+The overall conclusion of my analysis is that the number of folds had virtually no effect on the outcome of the metrics for each model, whereas the recipes, in most cases, did have a noticeable effect. For the tree-based models, the more complicated tree-based recipes outperformed the baseline, but in the case of the linear models, the more complex "kitchen sink" recipe underperformed. This could be for a few reasons. Firstly, it might be that my logic was flawed and that the `step_interact()` terms I added had the inverse effect I had hoped for. Secondly, because the kitchen sink recipe included any preprocessing step that could be useful, it's likely that I overdid it and that the data did not need to undergo as many changes as I put it through.
+
+**Results of hyperparameter tuning**
+Understanding what set of hyperparameters performed the best is very important. Tuning takes up serious computing time, and if I had known what parameter values to set to, this process would have been much more efficient. In order to see how different values of hyperparameters, I have calculated which model performed the best and what hyperparameters it used. 
+
+**Random Forest**
+
+The results for Random Forest can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/rf_best.rda"))
+
+rf_best
+```
+Interestingly, the results are quite different for each model that I tuned and fit to the data. The best hyperparameters for the first model, or the model using 10 folds and the tree-based recipe, were `mtry` = 20, `trees` = 1500, and `min_n` = 2. As we can see, the best `min_n` value did not change at all. The lowest value possible for `min_n` performed the best in every scenario. This is mostly likely because lowering the `min_n` value allows the trees to grow deeper, resulting in more complex individual trees. And while the number of `trees` and `mtry` differ, a value either equal to or greater than half the possible value always performed best for both parameters. Another thing to note is that the results look more similar when considering which recipe was used for each model. The first and third models used the tree-based recipe, while the second and fourth used the baseline recipe, and interestingly, those are the combinations with the same value for `mtry`. This could be because preprocessing techniques used in the tree recipe, like scaling and normalization change the range and distribution of feature variables. This leads to `mtry` more accurately considering the importance of all the variables for prediction.
+
+**Boosted Tree**
+
+The results for Boosted Tree can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/bt_best.rda"))
+
+bt_best
+```
+In this case, the highest `mtry` value in the range I set, or `mtry` = 10 was associated with the highest performing model in each case. In tree-based models, the higher the mtry, the more features are considered at each split. This can lead to better performing, more diverse trees which may explain this result. This also lines up with the results from Random Forest that higher `mtry` values are better. Interestingly, like `min_n` in Random Forest's example, the best `learn_rate` for each model was the same with a value of 0.631. This result requires further investigation. I'm not certain the importance of this specific value, and if I were to continue using the boosted tree model, I would want to know why this result occurred. Interestingly, the `min_n` values look quite different to those from Random Forest's results. Again, there seems to be a split based on recipe used, where for the case of the tree-based model, a lower `min_n` value performed better. This again aligns with what I discussed in the previous section that a lower `min_n` could lead to better results. The baseline recipe leading to higher `min_n` values could possibly be due to the fact that the other models suffered from overfitting by limiting the complexity of each tree.
+
+**Elastic Net**
+
+The results for Elastic Net can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/en_best.rda"))
+
+en_best
+```
+This is the most evident split based on recipe yet. It's clear that for the models which used the simpler linear recipe, the best values occurred at the maximum for each parameter, while for the more complex "kitchen sink" recipe, the lowest value for each parameter is where the best model occurred. This could be because with the more complex recipe, the best model was the one that was able to be more flexible and explore the relationships within the data more deeply. The model becomes more flexible as the penalty decreases.
+
+**K-Nearest Neighbors**
+
+The results for K-Nearest Neighbors can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/knn_best.rda"))
+
+knn_best
+```
+In this case, the results were clear. The maximum amount of neighbors set in the grid was 15, and it performed the best in every circumstance. This could be true for multiple reasons. Firstly, increasing the number of neighbors will decrease the variance because with a larger number of neighbors, the model's predictions tend to be less sensitive to the specific training data, resulting in lower variance. Secondly, through the use of more neighbors, the model has a better sense of what the data actually looks like leading to better prediction. And finally, having a higher number of numbers can reduce importance on noise in the data that does not actually represent the trends or patterns it should be predicting.
+
+Overall, I definitely believe that tuning hyperparameters is very important for making the best predictions possible, and it is vital to completely understand them and I would most certainly explore them further if I was going to make these kinds of predictions again. When fitting to this kind of data again, I would take into account things I learned from this analysis such as minimizing the `min_n` value for Random Forest models, increasing the amount of neighbors for K-Nearest Neighbors and more.
+
+
+## **Final Model Analysis**
+**This is where you fit your final/winning model to the testing data. Assess the final model’s performance with at least the metric used to determine the winning model, but it is also advisable to use other performance metrics (especially ones that might be easier to communicate/understand). Should include an exploration of predictions vs the true values (graph) or a confusion matrix (table). Remember to consider the scale of your outcome variable at this time — did you transform the target variable? If a transformation was used, then you should consider conducting analyses on both the original and transformed scale of the target variable. Is the model any good? It might be the best of the models you tried, but does the effort of building a predictive model really pay off — is it that much better than a baseline/null model? Were there any features of the model you selected that make it the best (e.g. fits nonlinearity well)?**
+
+Based on the results discussed in the previous section, it's clear that the Random Forest was the best performing model. 
+
+```{r}
+#| echo: false
+load(here("figures/all_rf_results.rda"))
+
+all_rf_results
+```
+As we can see, the best performing Random Forest looks to be the version using 10 folds and the tree-based recipe, which is interestingly what I would have guessed given my previous assumptions, although most results didn't turn out how I expected. This can be backed up by visualizing the performance of each model with 1.5 standard errors:
+
+```{r}
+#| echo: false
+#| eval: false
+load(here("figures/all_rf_results.rda"))
+
+all_rf_results
+```
+
+Therefore, I have trained that tuned model on the entire training data set, and used that trained model to predict on the test set, and here are the resulting metrics:
+
+```{r}
+#| echo: false
+load(here("figures/rf_metrics.rda"))
+
+rf_metrics
+```
+I calculated the Real Mean Squared Error as well as the Mean Absolute Error, and they give results similar to those calculated for the other Random Forest models. Because of income's large values and very large outliers, sometimes the model gets the value very wrong, and this causes the RMSE and MAE, which are calculated based on the size of these errors, to skyrocket in value.
+
+The value for the MAPE, or Mean Absolute Percentage Error, however, tells a different story. The MAPE measures the average absolute percentage difference between actual and forecasted values, meaning because MAPE is a percentage-based error metric and scales with the magnitude of the actual values, it is less affected by outliers than RMSE or MAE are. This number of 10.7083 gives a better sense of how good the model actually performed overall in its prediction. It tells us than on average, the predictions were around 10% off. This is pretty good! It gives more confidence that it was actually worth the time to fit the Random Forest model. 
+
+The R-squared value is promising as well. An R-squared value, also known as the coefficient of determination, represents the proportion of the variance in the dependent variable, or income, that is predictable from the independent, or predictor variables. In other words, it indicates the goodness of fit of a regression model.
+
+An R-squared value of 0.7441 means that approximately 74.41% of the variance in the dependent variable can be explained by the independent variable(s) in the regression model. This is not an amazing value, but it is pretty good. The baseline model with 10-folds has an R-squared that can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/base_rsq.rda"))
+
+base_rsq
+```
+While 0.6585 is a good value, it is certainly not as good as the Random Forest model's value of 0.7441. The difference is not very extreme though. The baseline model already gets a grade of 65.85%, so the difference is that of a D grade vs a C grade effectively for the two models. While it does take a long time to fit a Random Forest model, I myself would much rather get a C than a D so I do believe that the time and effort matters.
+
+
+## **Conclusion**
+**State any conclusions or discoveries/insights. This is a great place for future work, new research questions, and next steps.**
+
+Through this final project, I was able to assess 6 different model types and tune and fit them all 4 different times using a variety of recipes and folds in order to assess the best predictive model. I also fit the best performing data on the entire training set and use it to predict the values of the testing set leading to a significantly higher R-squared than the baseline model. 
+
+I also learned a lot about the different steps and processes of predictive modeling. I leanred that choosing hyperparameters and preprocessing steps requires a lot of understanding both about the data sets but about the model types themselves as well. I learned that, contrary to what I had originally thought, increasing the value of V in V-fold cross-validation did not effect the values at a statistically significant level at all. I learned that there is so much more in the world of predictive modeling for me to understand and practice. 
+
+My next steps would be to conquer an even more challenging data set and to do research on other kinds of models and how they might work in classification problems. I want to be able to glean as much information as I can about this process, and I was able to delve deep into how to solve a regression problem and visualize the data and my findings, so I would love to do so with classification as well. I would also hope to possibly find the answers to more important questions and tackle data sets that might give us insights into the world around us, because I believe that that is truly what data science should be used for.
+ 
+## **References**
+https://www.kaggle.com/datasets/muonneutrino/us-census-demographic-data
+
+## **Appendix: EDA**
+In order to understand the data, the outcome variable, and what preprocessing steps I should make, I did a short exploratory analysis. I began by skimming the entire data set:
+
+```{r}
+#| echo: false
+census_data |> 
+  skimr::skim_without_charts()
+```
+I analyzed each variable to make sure that there were no irregularities or variables that clearly looked like factors that needed to be mutated, or variables that might have zero variance or close to it. Based on this skim, I concluded that there were no such issues, and that I could safely use all variables moving forward in the prediction problem. 
+
+I also created a correlation plot using `ggcorrplot()` which can be seen here:
+
+![Corr plot](figures/corr_plot.png)
+
+This shows that some variables have very strong, positive, linear correlations such as `total_pop` with `men`, `women`, and `voting_age_citizen` which led to the interaction steps I choose to use in my "kitchen sink" recipe.
+
+
+
+
+
+
+

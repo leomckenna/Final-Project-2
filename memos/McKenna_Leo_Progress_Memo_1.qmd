@@ -1,0 +1,179 @@
+---
+title: "Progress Memo 1"
+subtitle: |
+  | Final Project 
+  | Data Science 2 with R (STAT 301-2)
+author: "Leo McKenna"
+date: today
+
+format:
+  html:
+    toc: true
+    embed-resources: true
+    
+execute:
+  echo: false
+  warning: false
+
+from: markdown+emoji 
+reference-location: margin
+citation-location: margin
+---
+
+::: {.callout-tip icon=false}
+
+## Github Repo Link
+
+[https://github.com/stat301-2-2024-winter/final-project-2-leomckenna.git](https://github.com/stat301-2-2024-winter/final-project-2-leomckenna.git)
+
+:::
+
+## Data source
+
+The data I will be using for this final project is called US Census Demographic Data. I found it on Kaggle, and it was uploaded by MUONNEUTRINO.^[https://www.kaggle.com/datasets/muonneutrino/us-census-demographic-data [](https://quarto.org/docs/blog/posts/2022-02-17-advanced-layout/)] This data was collected by the US Census Bureau in 2015 and 2017, and contains 4 data sets: 
+
+- `acs2015_census_tract_data.csv`
+- `acs2015_county_data.csv`
+- `acs2017_census_tract_data.csv`
+- `acs2017_county_data.csv`
+ 
+These contain data for each census tract, country, or county equivalent in the US, including DC and Puerto Rico. As of now, I will be using the data set `acs2017_county_data.csv` for prediction for two reasons. Firstly, in order to help make predictions about the world now in 2024, using the most recent data seems to make more sense. Secondly, I am using the county data, because counties are more ubiquitous than census tracts when talking about subsections of the United States.
+
+## Why this data
+
+I'm choosing this data for a few reasons. Firstly, it has an appropriate amount of features and observations in order to train and test a predictive model. It also has a few variables, such as income, that on first inspection, look like they would make good outcome variables. But, most importantly, creating a good predictive model for this data could lead to a greater understanding of the United States population, and what effects financial stability. Not to say that I'll be the one to solve this problem, but it could certainly produce good insights into the American economic system.
+
+As a student who studies economics, I believe it's incredibly important to develop an understanding of why so many people in this country are under or near the poverty line we have established. Economics, when used correctly, can be an important tool to improve the country and help people who need it. Analyzing the effect of variables in this data set such as `mean_commute`, `public_work`, `production` as well as the race of the county's constituents could shed light on some of the issues facing our economy.
+
+## Data quality & complexity check
+In ensuring the quality of the data, there are a few requirements that need to be met. Firstly, there should not be extensive missingness issues. This could lead to many problems for model prediction, because there will simply not be enough data to train the model on.
+
+```{r}
+#| echo: false
+# load packages ----
+library(tidyverse)
+library(tidymodels)
+library(here)
+library(patchwork)
+library(gt)
+
+# handle common conflicts
+tidymodels_prefer()
+
+# read in and clean data 
+county_data <- read_csv(here("data/acs2017_county_data.csv")) |> 
+  janitor::clean_names()
+```
+
+```{r}
+#| echo: false
+# Checking missingness
+county_data |> 
+  naniar::miss_var_summary() |> 
+  filter(n_miss > 0) |> 
+  gt() |> 
+  tab_header(
+    title = "Summary of Missing Values",
+    subtitle = "Variables with Missing Values"
+  )
+
+#There is one missing observation in the entire data set, so missingness will not be a problem for prediction
+```
+As we can see, there is only one missing observation in the entire data set, so that will not be an issue here. 
+
+Secondly, we need to inspect the data set to make sure that there are an appropriate amount of observations and features to create an accurate predictive model.
+
+```{r}
+#| echo: false
+## inspecting entire data set ----
+county_data |> 
+  count() |> 
+  gt() |> 
+  tab_header(
+    title = "Count of Observations"
+  )
+```
+The data set contains 3220 observations - meaning that there is data from 3,220 different US counties. This should certainly be enough information to mold a predictive model. If I were to use the normal amount of strata to split the data, there would be
+
+```{r}
+#| echo: false
+0.8*3220 
+```
+2576 observations for training, and thus 644 observations with which to test our trained model. 
+There are also 
+
+```{r}
+#| echo: false
+county_data |> 
+  ncol()
+```
+37 columns which should give us plenty of features for this model. Of these 37 columns,
+
+```{r}
+#| echo: false
+county_data |> 
+  select(where(is.numeric)) |> 
+  names()
+```
+35 are numeric variables, and 
+
+```{r}
+#| echo: false
+county_data |> 
+  select(!where(is.numeric)) |> 
+  names()
+```
+2 are categorical variables - simply the state and the county within the state.
+On inspection, I realized that there are three variables, namely `income_per_cap`, `income_per_cap_err`, and
+`income_err` that should be removed for prediction as they could lead to issues with multicollinearity. This has been done in McKenna_Leo_Progress_Memo_1.R.
+
+```{r}
+#| echo: false
+# removing unneeded variables
+county_data <- county_data |> 
+  select(-c(income_err, income_per_cap, income_per_cap_err))
+```
+
+And finally, we need to inspect the target variable and look at its distribution in order to determine what kind of feature engineering should be done.
+
+```{r}
+#| echo: false
+## inspect target variable ----
+county_data |> 
+  skimr::skim_without_charts(income)
+  
+```
+The data seems to follow the trend we would expect of income in the US - with an average of around
+50,000 dollars and the highest income value being around 130,000.
+
+**Distribution Plots**
+```{r}
+#| echo: false
+# analyzing distribution
+p1 <- county_data |> 
+  ggplot(aes(income)) +
+  geom_density(color = "black", fill = "darkred") +
+  theme(
+    axis.text.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  labs(x = "County Average Income")
+
+p2 <- county_data |> 
+  ggplot(aes(income)) +
+  geom_boxplot() + 
+  theme_void() +
+  labs(title = "Box and Density Plot for Income")
+
+p2/p1 +
+  plot_layout(heights = unit(c(1, 5), c("cm", "null")))
+```
+Looking at the box and densities plots of income, we can see that it follows a pretty standard normal distribution, with mean 48994.97, and standard deviation 13877.18. This means that there will be no transformation needed for income in order to use it as the target variable in the prediction. 
+
+I believe that, after looking at the data and the target variable, this data is of high enough quality and complexity, and income is a sufficient outcome variable.
+
+## Potential data issues
+
+As I've shown in the previous section, there are going to be no issues in regards to missingness in this data set. This data set was also very clean, and all that really needed to be done was to clean the names, so it's already in a usable format. One issue that may arise is that I believe that there are many, many variables that contribute to a county's average income, and so I think that the models might suffer from omitted variable bias. This data set contains no variables related to what salaries might look like in a certain county or state. For example, it has nothing about the minimum wage in a certain region or whether the income that we're analyze is gross income or post-tax income, in which case state taxes would matter. There are 33 variables than can be used for prediction of income, but I think it could make sense to incorporate other data sets which have information about these factors especially if it looks like prediction with just this data is inadequate.
+

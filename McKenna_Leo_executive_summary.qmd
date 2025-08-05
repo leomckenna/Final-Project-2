@@ -1,0 +1,115 @@
+---
+title: "Executive Summary of Report"
+subtitle: "Data Science 2 with R (STAT 301-2)"
+author: "Leo McKenna"
+date: today
+
+format:
+  html:
+    toc: true
+    embed-resources: true
+    code-fold: show
+    link-external-newwindow: true
+
+execute:
+  warning: false
+  
+from: markdown+emoji 
+---
+
+## **Overview**
+The main goal of this project is to determine what model would make the best predictions of county income based on US Census Data from 3,220 different US counties. The data contains 37 variables, and I used over 30 of them as predictor variables to get result as accurate as possible. I began by splitting the data using the traditional proportion of 0.8, or 80% of the data assigned for training, with the other 20% for testing. Then I used V-fold cross-validation in order to get the most correct results from each model, and in one case I used V=5, and in the other I used V = 10.
+
+I did this in order to test whether the amount of folds was important to getting better results. And the answer was resoundingly no. We can see this in the plot of all models done using 5-folds versus 10-folds:
+
+![5 v 10 fold models](figures/folds_plot.png)
+
+The 5-fold models are shown on the right, and 10-fold models on the left. This shows that there are not significant differences in their values, and that in fact, the 5-fold cross-validation outperformed its opponent in some cases.
+
+Then, I analyzed whether recipes made a difference on the accuracy of prediction. In order to test the importance of preprocessing, I created more simple baseline and linear recipes, and then more complicated tree-based and "kitchen sink" recipes. I tested the linear models using the simpler linear and more complicated "kitchen sink" recipe, and the non-linear models with the baseline, and more complex tree-based recipes. I compared them using the mean RMSE values calculated for each kind of model
+
+For the tree-based models, the results can be seen in this graph:
+
+![Tree models](figures/rf_plot.png)
+
+This clearly show that there are two Random Forest models which are better than the others, those being the models which employed the tree-based recipe. This is what I had expected before doing the analysis. The tree-based recipe includes more preprocessing steps, including normalization and scaling, which caused more accurate prediction by eliminating more noise from the data.
+
+For the linear models, the results can be seen here:
+
+![Linear models](figures/lm_plot.png)
+
+Again, there are clearly models that performed better than the others by a good margin, in this case, there are 4 that performed the best, 2 from the elastic net model, and 2 standard linear models, and they are interestingly, those that used the more simple, linear recipe rather than the "kitchen sink" recipe. This could be for a few reasons. Firstly, it might be that my logic was flawed and that the `step_interact()` terms I added had the inverse effect I had hoped for. Secondly, because the kitchen sink recipe included any preprocessing step that could be useful, it's likely that I overdid it and that the data did not need to undergo as many changes as I put it through.
+
+I also tested which hyperparameter values performed best for the Random Forest, Boosted Tree, K-Nearest Neighbor, and Elastic Net models. In order to see how different values of hyperparameters, I have calculated which model performed the best and what hyperparameters it used. 
+
+The results for Random Forest can be seen here:
+
+```{r}
+#| echo: false
+library(here)
+load(here("figures/rf_best.rda"))
+
+rf_best
+```
+Interestingly, the results are quite different for each model that I tuned and fit to the data. As we can see, the best `min_n` value did not change at all. The lowest value possible for `min_n` performed the best in every scenario. This is mostly likely because lowering the `min_n` value allows the trees to grow deeper, resulting in more complex individual trees. And while the number of `trees` and `mtry` differ, a value either equal to or greater than half the possible value always performed best for both parameters. Another thing to note is that the results look more similar when considering which recipe was used for each model. The first and third models used the tree-based recipe, while the second and fourth used the baseline recipe, and interestingly, those are the combinations with the same value for `mtry`. This could be because preprocessing techniques used in the tree recipe, like scaling and normalization change the range and distribution of feature variables. This leads to `mtry` more accurately considering the importance of all the variables for prediction.
+
+**Boosted Tree**
+
+The results for Boosted Tree can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/bt_best.rda"))
+
+bt_best
+```
+In this case, the highest `mtry` value in the range I set, or `mtry` = 10 was associated with the highest performing model in each case. In tree-based models, the higher the mtry, the more features are considered at each split. This can lead to better performing, more diverse trees which may explain this result. Interestinlg, the best `learn_rate` for each model was the same with a value of 0.631. I'm not certain the importance of this specific value, and if I were to continue using the boosted tree model, I would want to know why this result occurred. Interestingly, the `min_n` values look quite different to those from Random Forest's results. There seems to be a split based on recipe used, where for the case of the tree-based model, a lower `min_n` value performed better. The baseline recipe leading to higher `min_n` values could possibly be due to the fact that the other models suffered from overfitting by limiting the complexity of each tree.
+
+**Elastic Net**
+
+The results for Elastic Net can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/en_best.rda"))
+
+en_best
+```
+This is the most evident split based on recipe yet. It's clear that for the models which used the simpler linear recipe, the best values occurred at the maximum for each parameter, while for the more complex "kitchen sink" recipe, the lowest value for each parameter is where the best model occurred. This could be because with the more complex recipe, the best model was the one that was able to be more flexible and explore the relationships within the data more deeply. The model becomes more flexible as the penalty decreases.
+
+**K-Nearest Neighbors**
+
+The results for K-Nearest Neighbors can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/knn_best.rda"))
+
+knn_best
+```
+In this case, the results were clear. The maximum amount of neighbors set in the grid was 15, and it performed the best in every circumstance. This could be true for multiple reasons. Firstly, increasing the number of neighbors will decrease the variance because with a larger number of neighbors, the model's predictions tend to be less sensitive to the specific training data, resulting in lower variance. Secondly, through the use of more neighbors, the model has a better sense of what the data actually looks like leading to better prediction. And finally, having a higher number of numbers can reduce importance on noise in the data that does not actually represent the trends or patterns it should be predicting.
+
+Then, I fit the best performing model, which turned out to be a Random Forest model using 10 folds and the tree-based recipe, and used that trained model to predict on the test set, and here are the resulting metrics:
+
+```{r}
+#| echo: false
+load(here("figures/rf_metrics.rda"))
+
+rf_metrics
+```
+I calculated the Real Mean Squared Error as well as the Mean Absolute Error, and they give results similar to those calculated for the other Random Forest models. Because of income's large values and very large outliers, sometimes the model gets the value very wrong, and this causes the RMSE and MAE, which are calculated based on the size of these errors, to skyrocket in value.
+
+The value for the MAPE, or Mean Absolute Percentage Error, however, tells a different story. The number of 10.7083 gives a better sense of how good the model actually performed overall in its prediction. It tells us than on average, the predictions were around 10% off. This is pretty good! It gives more confidence that it was actually worth the time to fit the Random Forest model. 
+
+The R-squared value is promising as well. An R-squared value of 0.7441 means that approximately 74.41% of the variance in the dependent variable can be explained by the independent variable(s) in the regression model. This is not an amazing value, but it is pretty good. The baseline model with 10-folds has an R-squared that can be seen here:
+
+```{r}
+#| echo: false
+load(here("figures/base_rsq.rda"))
+
+base_rsq
+```
+While 0.6585 is a good value, it is certainly not as good as the Random Forest model's value of 0.7441. The difference is not very extreme though. The baseline model already gets a grade of 65.85%, so the difference is that of a D grade vs a C grade effectively for the two models. While it does take a long time to fit a Random Forest model, I myself would much rather get a C than a D so I do believe that the time and effort matters.
+
+This conclusion lined up with what I believed would happen at the outset of the project. From experience in class, I expected either the Random Forest or Boosted Tree models to perform the best, and it turned out that the Random Forest did. I also knew I could not make a perfect predictive model, i.e. one with an R-squared or MAPE near zero, but I was able to predict the actual values with a pretty good success rate.
+

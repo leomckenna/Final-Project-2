@@ -1,0 +1,142 @@
+---
+title: "Progress Memo 2"
+subtitle: |
+  | Final Project 
+  | Data Science 2 with R (STAT 301-2)
+author: "Leo McKenna"
+date: today
+
+format:
+  html:
+    toc: true
+    embed-resources: true
+    
+execute:
+  echo: false
+  warning: false
+
+from: markdown+emoji 
+reference-location: margin
+citation-location: margin
+---
+
+::: {.callout-tip icon=false}
+
+## Github Repo Link
+
+[https://github.com/stat301-2-2024-winter/final-project-2-leomckenna.git](https://github.com/stat301-2-2024-winter/final-project-2-leomckenna.git)
+
+:::
+
+**Assessment Metric**
+The assessment metric selected for this analysis is the Root Mean Squared Error (RMSE). RMSE is a very important, reliable metric for evaluating the accuracy of regression models. It measures the average magnitude of the errors between predicted and observed values, providing a comprehensive assessment of model performance.
+
+## Analysis Plan
+
+**Data Splitting**
+
+To ensure robust model evaluation, I'll be using the conventional 80/20 split will be employed, where 80% of the data will be allocated for model training and the remaining 20% for testing. There are around 3000 observations, and the splits will look like this:
+
+```{r}
+#| echo: false
+# load packages ----
+library(tidyverse)
+library(tidymodels)
+library(here)
+library(gt)
+library(knitr)
+
+# handle common conflicts
+tidymodels_prefer()
+
+# read in and clean data 
+census_data <- read_csv(here("data/acs2017_county_data.csv")) |> 
+  janitor::clean_names() 
+
+# set seed 
+set.seed(700136)
+
+#initial split
+census_split <- census_data |> 
+  initial_split(prop = 0.8, strata = income)
+
+census_split
+```
+This should be an appropriate amount of observations for testing and also to use stratification and resampling in order to achieve better predictive results.
+ 
+**Resampling**
+
+I will be using resampling in order to mitigate the risk of over-fitting and to obtain reliable estimates of model performance. Specifically, I'll be using V-fold cross-validation. In my research, cross-validation seems to be the best to way to get accurate results on how well a model is predicting in order to analyze which one is doing the best job. 
+
+**Model Types**
+
+Six distinct model types will be considered for analysis:
+
+Baseline Model (Standard Linear Model): A simple linear regression model that assumes a linear relationship between the predictor variables and the target variable.
+
+Boosted Tree Model: A machine learning ensemble technique that builds a strong model by combining multiple weak models, typically decision trees, sequentially. 
+
+Elastic Net Model: A hybrid regression model that combines penalties from both Lasso (L1 regularization) and Ridge (L2 regularization) regression.
+
+K Nearest Neighbor Model: A model that predicts the class or value of a data point by averaging the labels of its k nearest neighbors in the feature space.
+
+Lasso Model: A linear regression technique that adds an L1 penalty term to the standard least squares objective, encouraging sparsity in the coefficient vector.
+
+Random Forest Model: A learning method consisting of multiple decision trees, where each tree is trained on a random subset of the data and features.
+
+
+
+**Recipes**
+
+I'll be using four different recipes in order to analyze the six different models. Firstly, a simple, baseline recipe for the simple linear regression model. Secondly, a kitchen sink recipe that does not aim to maximize efficiency for specific models, but simply include any kind of pre-processing that would be necessary. Then, I will also use a more specific tree-based and linear recipes in order to get the best results possible out of each model.
+
+
+## Fitted Models
+
+The two models that I have fit to the folds are the baseline linear model, as well as the lasso model. Those results can be seen here:
+
+```{r}
+#| echo: false
+load(here("results/lm_fit.rda"))
+load(here("results/lasso_fit.rda"))
+
+# results for memo
+memo_results <- as_workflow_set(
+  linear_model = lm_fit,
+  lasso = lasso_fit
+)
+
+memo_results |> 
+  collect_metrics() |> 
+  filter(.metric == "rmse") |> 
+  gt() |> 
+  tab_header(title = md("**Metrics for The Linear and Lasso Models**"))
+
+
+```
+
+
+## Progress Update
+
+Because income is a numeric variable with very large numbers, the Real Mean Squared Error calculated for the simple, linear model as well as the lasso model came out very high - with values upwards of 8,000. This signals to me that it might make sense to do a transformation of the values of income in order to reduce this number to something that's more easily used for analysis. 8,000 is a difficult number to understand because it requires a lot of context on the values of the outcome variable that you're discussing. 
+
+Aside from looking at possible transformations, I will continue by tuning all of the non-baseline models to refine results even further. I think it also makes sense to try different amounts of folds for the V-fold cross validation in order to test whether doing more folds gives us more predictive power or not.
+
+Most importantly, I plan on first creating and refining the four recipes that I'll be using. The most important step will be understanding how I can use `step_interact()` to combine the predictive power of multiple variables. I'll have to do some analysis of the underlying data set and all of its variables in order to understand which interactions will be beneficial.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
