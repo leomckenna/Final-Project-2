@@ -9,7 +9,6 @@ This Final Project Repository contains 9 folders:
 - `Final report` :  Contains the Final report Quarto Markdown file
 - `memos` : Contains Final Progress Memos 1 and 2, and the associated .qmd and .R files
 - `recipes` : Contains all  recipes used for fitting and tuning
-- `results` : Contains all results for fitted and tuned models
 - `Rscripts` : Contains all work done in .rscript files
 
 It also contains:
